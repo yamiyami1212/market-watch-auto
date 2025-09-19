@@ -3,13 +3,13 @@ name: auto_update
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * 1,4"  # run every Monday and Thursday at 00:00 UTC
+    - cron: "0 0 * * 1,4"  # every Monday & Thursday 00:00 UTC -> 09:00 JST
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -26,8 +26,12 @@ jobs:
         run: |
           python market_watch_auto.py
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: trend-graph
-          path: trend-*.zip
+          name: market-watch-artifacts
+          path: |
+            financial_*.png
+            trends_*.png
+            trends_*.csv
+            merged_*.csv
