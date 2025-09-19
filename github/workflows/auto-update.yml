@@ -1,0 +1,29 @@
+me: Auto Update Market Watch
+
+on:
+  schedule:
+    - cron: "0 0 * * 1"   # 毎週月曜 0時(UTC)に実行
+  workflow_dispatch:       # 手動実行も可能
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          # 後でpandasやpytrendsを使う場合はここに追加
+          # pip install pandas pytrends matplotlib
+
+      - name: Run script
+        run: |
+          python "マーケットウォッチ自動.py"
