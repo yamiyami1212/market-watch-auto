@@ -3,47 +3,35 @@ name: auto_update
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * 1"  # 毎週月曜0:00 UTC（必要に応じて変更）
+    - cron: "0 0 * * 1"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install pandas matplotlib pytrends pandas_datareader requests
+          pip install -r requirements.txt
 
-      - name: Run script
+      - name: Run macro script
         run: |
-          python market_watch_auto.py
+          python market_watch_macro.py
 
-      - name: Package results
-        run: |
-          mkdir -p artifacts
-          # copy files if exist
-          for f in macro_graph.png macro_data.csv trends_graph.png trends_data.csv; do
-            if [ -f "$f" ]; then cp "$f" artifacts/; fi
-          done
-          cd artifacts || exit 0
-          zip -r ../market_watch_results.zip . || true
-          cd ..
-
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: market-watch-artifacts
+          name: macro-artifacts
           path: |
-            market_watch_results.zip
-            macro_graph.png
             macro_data.csv
-            trends_graph.png
-            trends_data.csv
+            macro_graph.png
+            debug_raw/**
+```0
