@@ -1,9 +1,9 @@
 name: auto_update
 
 on:
-  workflow_dispatch:
+  push:
   schedule:
-    - cron: '0 0 * * 1,4'  # 毎週月曜・木曜 09:00 JST（=00:00 UTC）
+    - cron: '0 0 * * 1,4'  # 毎週月曜と木曜の09:00 (UTC換算で0:00)
 
 jobs:
   build:
@@ -19,7 +19,7 @@ jobs:
           python-version: '3.x'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install matplotlib pandas
 
       - name: Run script
         run: python market_watch_auto.py
