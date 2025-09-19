@@ -57,3 +57,6 @@ else:
     plt.savefig("trend.png")
 
     print("✅ Graph saved as trend.png")
+import matplotlib.pyplot as plt
+# グラフを保存（必ず trend.png として出力）
+plt.savefig("trend.png")
