@@ -2,14 +2,12 @@ name: auto_update
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * 1,4'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -20,23 +18,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install pandas matplotlib pytrends
 
-      - name: Run FRED macro script
-        run: |
-          python market_watch_macro.py
-
-      - name: Run Google Trends script
+      - name: Run trends script (Google keywords)
         run: |
           python market_watch_trends.py
 
-      - name: Upload artifacts
-        if: always()
+      - name: Upload trends graph
         uses: actions/upload-artifact@v4
         with:
-          name: market-watch-artifacts
-          path: |
-            macro_trends.png
-            macro_data.csv
-            google_trends_keywords.png
-            google_trends.csv
+          name: trends-graph
+          path: trends_keywords.png
