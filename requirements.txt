@@ -1,5 +1,5 @@
-pandas
-matplotlib
-pytrends
-pandas_datareader
-fredapi
+pandas>=1.4
+matplotlib>=3.5
+pytrends>=4.9
+pandas_datareader>=0.10
+urllib3<2
