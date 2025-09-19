@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,10 +30,16 @@ jobs:
         run: |
           python market_watch_macro.py
 
+      - name: Run trends script
+        run: |
+          python trends.py
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: macro-results
+          name: market-results
           path: |
             macro_data.csv
             macro_graph.png
+            trends_data.csv
+            trends_graph.png
