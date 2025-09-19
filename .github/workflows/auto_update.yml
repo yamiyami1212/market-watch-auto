@@ -30,7 +30,7 @@ jobs:
           mv trend.png trend_${DATE}.png
 
       - name: Upload result graph
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: trend-graph
           path: trend_*.png
