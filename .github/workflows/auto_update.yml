@@ -3,24 +3,29 @@ name: auto_update
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 1'  # every Monday (UTC)
+    - cron: "0 0 * * 1"
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install pandas matplotlib pytrends fredapi
+          fi
 
       - name: Run macro script
         run: |
@@ -29,7 +34,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: macro-artifacts
+          name: macro-results
           path: |
             macro_data.csv
             macro_graph.png
