@@ -3,11 +3,12 @@ name: auto_update
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * 1,4"
+    - cron: '0 0 * * 1,4'  # 毎週月曜・木曜 09:00 JST（=00:00 UTC）
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -15,11 +16,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: '3.x'
 
       - name: Install dependencies
-        run: |
-          pip install pandas
+        run: pip install -r requirements.txt
 
       - name: Run script
         run: python market_watch_auto.py
