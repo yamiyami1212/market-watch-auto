@@ -38,4 +38,3 @@ jobs:
           path: |
             macro_data.csv
             macro_graph.png
-```0
