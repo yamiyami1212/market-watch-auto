@@ -44,4 +44,4 @@ df.to_csv(csv_filename)
 # グラフ作成
 # -----------------------------
 plt.figure(figsize=(10, 6))
-for kw in KEWWORDS
+for kw in KEYWORDS
