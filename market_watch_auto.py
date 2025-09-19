@@ -1,1 +1,1 @@
-print("Hello GitHub Actions! - Market Watch Auto"
+print("Hello GitHub Actions! - Market Watch Auto")
