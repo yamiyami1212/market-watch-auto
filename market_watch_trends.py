@@ -1,94 +1,75 @@
-# market_watch_trends.py
-import time
+# trends.py
+# Google Trends: 指定キーワード（5ワード）を取得し daily-ish データを保存・プロット
+from pytrends.request import TrendReq
 import pandas as pd
 import matplotlib.pyplot as plt
-from pytrends.request import TrendReq
+import time
 import sys
 
-# === ここで必ずユーザー指定の5ワードにする ===
 KEYWORDS = [
-    "sell my house fast",
+    "Sell my house fast",
     "give car back",
-    "borrow against life insurance",
+    "Borrow against life insurance",
     "sell my rolex watch",
     "bankruptcy lawyer"
 ]
 
-OUT_PNG = "trends_keywords.png"
-OUT_CSV = "trends_keywords.csv"
-
-def fetch_trends(keywords, attempts=3, sleep_seconds=5):
-    # ヘッダを指定して Google にブロックされにくくする
-    pytrends = TrendReq(hl='en-US', tz=360, requests_args={
-        "headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) "
-                          "Chrome/91.0.4472.124 Safari/537.36"
-        }
-    })
-
-    df = None
-    for attempt in range(attempts):
+def fetch_trends(keywords, timeframe="today 6-m", attempts=3, wait=5):
+    py = TrendReq(hl='en-US', tz=360, retries=2, backoff_factor=0.5)
+    for i in range(attempts):
         try:
-            print(f"Attempt {attempt+1} to fetch Google Trends...")
-            pytrends.build_payload(keywords, timeframe='today 6-m')
-            df = pytrends.interest_over_time()
-            # interest_over_time returns extra column 'isPartial' sometimes; remove it
-            if df is not None and 'isPartial' in df.columns:
-                df = df.drop(columns=['isPartial'])
+            py.build_payload(keywords, timeframe=timeframe)
+            df = py.interest_over_time()
             if df is None or df.empty:
-                print("Got empty DataFrame from pytrends.")
-                raise RuntimeError("Empty trends data")
-            print("✅ Google Trends data fetched.")
+                raise ValueError("No trends data")
+            # drop isPartial column if present
+            if 'isPartial' in df.columns:
+                df = df.drop(columns=['isPartial'])
             return df
         except Exception as e:
-            print(f"⚠️ Attempt {attempt+1} failed: {e}")
-            time.sleep(sleep_seconds)
-    # 最後までダメなら None を返す
-    return None
+            print(f"⚠️ Attempt {i+1} failed: {e}", file=sys.stderr)
+            time.sleep(wait)
+    raise RuntimeError("Google Trends fetch failed after attempts")
 
-def plot_trends(df, keywords, out_png):
-    plt.figure(figsize=(12,5))
-    if df is None or df.empty:
-        # No data -> placeholder image
-        fig = plt.figure(figsize=(8,4))
-        ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, "No trends data", ha='center', va='center', fontsize=18)
-        ax.set_axis_off()
-        fig.suptitle("Google Trends (daily) - specified keywords")
-        fig.savefig(out_png, bbox_inches='tight')
-        print(f"Saved placeholder image to {out_png}")
-        return
-
-    # Ensure index is datetime and daily
-    df.index = pd.to_datetime(df.index)
-    # Plot each keyword
+def save_and_plot(df, keywords):
+    # save csv
+    df.to_csv("trends_data.csv", index=True)
+    # plot
+    plt.figure(figsize=(12,6))
     for kw in keywords:
         if kw in df.columns:
             plt.plot(df.index, df[kw], label=kw)
-        else:
-            print(f"Note: keyword '{kw}' not in DataFrame columns")
-
-    plt.legend(loc='upper right', fontsize=8)
     plt.title("Google Trends (daily) - specified keywords")
     plt.xlabel("Date")
     plt.ylabel("Interest (0-100)")
+    plt.legend(loc='upper right')
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(out_png)
-    print(f"Saved trends graph to {out_png}")
+    plt.savefig("trends_graph.png")
+    plt.close()
+    print("✅ trends_data.csv and trends_graph.png saved")
 
 def main():
-    df = fetch_trends(KEYWORDS)
-    # Save raw csv for debugging / archive (if df exists)
-    if df is not None and not df.empty:
-        try:
-            df.to_csv(OUT_CSV)
-            print(f"Saved trends CSV to {OUT_CSV}")
-        except Exception as e:
-            print(f"Could not save CSV: {e}")
+    try:
+        df = fetch_trends(KEYWORDS, timeframe="today 6-m", attempts=3, wait=5)
+    except Exception as e:
+        print(f"Error fetching trends: {e}", file=sys.stderr)
+        # create an empty placeholder CSV and image indicating no data
+        empty = pd.DataFrame()
+        empty.to_csv("trends_data.csv")
+        # placeholder image
+        plt.figure(figsize=(8,4))
+        plt.text(0.5, 0.5, "No trends data", ha='center', va='center', fontsize=16)
+        plt.axis('off')
+        plt.savefig("trends_graph.png")
+        plt.close()
+        sys.exit(0)
 
-    plot_trends(df, KEYWORDS, OUT_PNG)
+    # If successful, ensure datetime index is fine
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+
+    save_and_plot(df, KEYWORDS)
 
 if __name__ == "__main__":
     main()
