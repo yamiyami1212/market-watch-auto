@@ -1,75 +1,98 @@
-# trends.py
-# Google Trends: 指定キーワード（5ワード）を取得し daily-ish データを保存・プロット
-from pytrends.request import TrendReq
-import pandas as pd
-import matplotlib.pyplot as plt
+# market_watch_trends.py
+# Replace the file entirely with this content.
+
 import time
 import sys
+import traceback
+import pandas as pd
+import matplotlib.pyplot as plt
+from pytrends.request import TrendReq
 
+# ---- 設定（ここをそのまま使います） ----
 KEYWORDS = [
-    "Sell my house fast",
+    "sell my house fast",
     "give car back",
-    "Borrow against life insurance",
+    "borrow against life insurance",
     "sell my rolex watch",
-    "bankruptcy lawyer"
+    "bankruptcy lawyer",
 ]
 
-def fetch_trends(keywords, timeframe="today 6-m", attempts=3, wait=5):
-    py = TrendReq(hl='en-US', tz=360, retries=2, backoff_factor=0.5)
-    for i in range(attempts):
+# timezone and user-agent for GitHub Actions
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/114.0.0.0 Safari/537.36"
+)
+
+OUT_CSV = "trends_data.csv"
+OUT_PNG = "trends_graph.png"
+
+def fetch_trends(keywords, timeframes):
+    """複数のtimeframeを試して、空でないデータを返す。失敗時はNoneを返す。"""
+    pytrends = TrendReq(hl="en-US", tz=360, requests_args={"headers": {"User-Agent": USER_AGENT}})
+    for tf in timeframes:
         try:
-            py.build_payload(keywords, timeframe=timeframe)
-            df = py.interest_over_time()
+            print(f"Trying timeframe: {tf}", flush=True)
+            pytrends.build_payload(keywords, timeframe=tf)
+            df = pytrends.interest_over_time()
             if df is None or df.empty:
-                raise ValueError("No trends data")
+                print(" -> empty result", flush=True)
+                continue
             # drop isPartial column if present
-            if 'isPartial' in df.columns:
-                df = df.drop(columns=['isPartial'])
+            if "isPartial" in df.columns:
+                df = df.drop(columns=["isPartial"])
             return df
         except Exception as e:
-            print(f"⚠️ Attempt {i+1} failed: {e}", file=sys.stderr)
-            time.sleep(wait)
-    raise RuntimeError("Google Trends fetch failed after attempts")
+            print(f"Exception while fetching timeframe {tf}: {e}", flush=True)
+            traceback.print_exc()
+            time.sleep(2)
+    return None
 
-def save_and_plot(df, keywords):
-    # save csv
-    df.to_csv("trends_data.csv", index=True)
-    # plot
-    plt.figure(figsize=(12,6))
+def save_csv(df, path):
+    df.to_csv(path, index=True)
+    print(f"Saved CSV: {path} (rows={len(df)})", flush=True)
+
+def plot_trends(df, keywords, out_png):
+    plt.figure(figsize=(12,5))
     for kw in keywords:
         if kw in df.columns:
             plt.plot(df.index, df[kw], label=kw)
     plt.title("Google Trends (daily) - specified keywords")
     plt.xlabel("Date")
     plt.ylabel("Interest (0-100)")
-    plt.legend(loc='upper right')
-    plt.grid(True)
+    plt.legend(loc="upper right")
     plt.tight_layout()
-    plt.savefig("trends_graph.png")
+    plt.savefig(out_png)
     plt.close()
-    print("✅ trends_data.csv and trends_graph.png saved")
+    print(f"Saved PNG: {out_png}", flush=True)
+
+def make_empty_placeholder_png(path, message="No trends data"):
+    plt.figure(figsize=(8,4))
+    plt.text(0.5, 0.5, message, ha='center', va='center', fontsize=20)
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(path)
+    plt.close()
+    print(f"Saved placeholder PNG: {path}", flush=True)
 
 def main():
-    try:
-        df = fetch_trends(KEYWORDS, timeframe="today 6-m", attempts=3, wait=5)
-    except Exception as e:
-        print(f"Error fetching trends: {e}", file=sys.stderr)
-        # create an empty placeholder CSV and image indicating no data
-        empty = pd.DataFrame()
-        empty.to_csv("trends_data.csv")
-        # placeholder image
-        plt.figure(figsize=(8,4))
-        plt.text(0.5, 0.5, "No trends data", ha='center', va='center', fontsize=16)
-        plt.axis('off')
-        plt.savefig("trends_graph.png")
-        plt.close()
+    # pytrends supports up to 5 keywords in one payload (we use exactly 5)
+    # 試すtimeframes（空なら長い期間, それでもダメなら日次を短く）
+    timeframes = ["today 6-m", "today 12-m", "today 3-m", "now 7-d"]
+    df = fetch_trends(KEYWORDS, timeframes)
+
+    if df is None or df.empty:
+        print("⚠️ No trends data fetched for any timeframe. Writing placeholder outputs.", flush=True)
+        # 空CSV作成（ヘッダのみ）
+        empty_df = pd.DataFrame(columns=KEYWORDS)
+        empty_df.to_csv(OUT_CSV, index=True)
+        make_empty_placeholder_png(OUT_PNG, "No trends data")
+        sys.exit(0)  # 成功終了（ワークフローは続行させたい場合）
+    else:
+        # 日次 -> 季月平均など必要ならここで変換可能（今はそのまま保存）
+        save_csv(df, OUT_CSV)
+        plot_trends(df, KEYWORDS, OUT_PNG)
         sys.exit(0)
-
-    # If successful, ensure datetime index is fine
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index)
-
-    save_and_plot(df, KEYWORDS)
 
 if __name__ == "__main__":
     main()
