@@ -1,0 +1,6 @@
+pandas>=1.5
+matplotlib>=3.5
+pandas_datareader>=0.10
+pytrends>=4.9
+yfinance>=0.2
+urllib3<2
