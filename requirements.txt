@@ -1,4 +1,5 @@
-pandas
-matplotlib
-pandas-datareader
-pytrends
+pandas>=1.4
+matplotlib>=3.5
+pandas_datareader>=0.10
+pytrends>=4.9
+urllib3<2
