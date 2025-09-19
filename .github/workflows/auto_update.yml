@@ -3,7 +3,7 @@ name: auto_update
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * 1,4"  # every Monday & Thursday 00:00 UTC -> 09:00 JST
+    - cron: "0 0 * * 1,4"  # Monday & Thursday 00:00 UTC -> 09:00 JST
 
 jobs:
   build:
@@ -31,7 +31,8 @@ jobs:
         with:
           name: market-watch-artifacts
           path: |
+            merged_*.csv
             financial_*.png
             trends_*.png
-            trends_*.csv
-            merged_*.csv
+            trends_daily_*.csv
+            debug_outputs/**
