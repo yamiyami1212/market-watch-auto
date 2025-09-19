@@ -3,40 +3,52 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pytrends.request import TrendReq
 
-# ---------------------------------
+# -----------------------------
 # 設定
-# ---------------------------------
+# -----------------------------
 KEYWORDS = ["Bitcoin", "Ethereum", "NFT"]
 
-# GitHub Actions 対策: User-Agent を指定してリクエスト
+# Google Trends に接続（User-Agent と retries を強化）
 pytrends = TrendReq(
     hl="en-US",
     tz=360,
+    retries=5,
+    backoff_factor=0.5,
     requests_args={
         "headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/91.0.4472.124 Safari/537.36"
+                "Chrome/123.0.0.0 Safari/537.36"
             )
         }
     },
 )
 
-# ---------------------------------
-# データ取得
-# ---------------------------------
-pytrends.build_payload(KEYWORDS, timeframe="today 6-m")
-df = pytrends.interest_over_time()
+# -----------------------------
+# データ取得（リトライつき）
+# -----------------------------
+success = False
+for attempt in range(3):
+    try:
+        pytrends.build_payload(KEYWORDS, timeframe="today 6-m")
+        df = pytrends.interest_over_time()
+        success = True
+        break
+    except Exception as e:
+        print(f"⚠️ Attempt {attempt+1} failed: {e}")
+        time.sleep(5)
+
+if not success:
+    raise RuntimeError("❌ Google Trends API request failed after 3 attempts.")
 
 # NaN があれば削除
 df = df.dropna()
 
-# ---------------------------------
+# -----------------------------
 # グラフ描画
-# ---------------------------------
+# -----------------------------
 plt.figure(figsize=(10, 6))
-
 for kw in KEYWORDS:
     plt.plot(df.index, df[kw], label=kw)
 
