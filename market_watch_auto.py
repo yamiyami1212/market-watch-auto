@@ -1,149 +1,217 @@
+#!/usr/bin/env python3
 # market_watch_auto.py
-# PURPOSE: fetch M2 YoY (FRED), HY spread (FRED), VIX (FRED), Google Trends for keywords,
-#          combine and produce a plot trend.png
-# USAGE: python market_watch_auto.py
+# English-only. Reads data_sources.json and creates financial + trends outputs.
 
 import os
-import io
-import zipfile
-from datetime import datetime
+import json
 import time
+from datetime import datetime, timedelta
 
 import pandas as pd
 import matplotlib.pyplot as plt
 from pandas_datareader.data import DataReader
 from pytrends.request import TrendReq
 
-# --- CONFIG
-KEYWORDS = ["Bitcoin", "Apple", "Google", "Amazon"]  # Google Trends keywords
-FRED_M2_SERIES = "M2SL"            # M2 money stock level
-FRED_HY_SPREAD = "BAMLH0A0HYM2"    # ICE BofA US High Yield OAS (bps)
-FRED_VIX = "VIXCLS"                # CBOE VIX index (Close)
+# config
+ROOT = "."
+DS_FILE = os.path.join(ROOT, "data_sources.json")
 LOOKBACK_MONTHS = 6
+TREND_LOOKBACK_MONTHS = 12  # fetch 12m then trim to 6m for stability
+DATE_STR = datetime.utcnow().strftime("%Y-%m-%d")
 
-# calculate date range
+# outputs
+FIN_PNG = f"financial_{DATE_STR}.png"
+TRENDS_PNG = f"trends_{DATE_STR}.png"
+MERGED_CSV = f"merged_{DATE_STR}.csv"
+TRENDS_CSV = f"trends_{DATE_STR}.csv"
+
+# load data sources
+with open(DS_FILE, "r", encoding="utf-8") as f:
+    ds = json.load(f)
+
+M2_SERIES = ds.get("m2", "M2SL")
+VIX_SERIES = ds.get("vix", "VIXCLS")
+HY_SERIES = ds.get("hy_spread", "BAMLH0A0HYM2")
+KEYWORDS = ds.get("google_trends_keywords", [])
+
+# date range
 end = pd.Timestamp.today().normalize()
 start = end - pd.DateOffset(months=LOOKBACK_MONTHS)
+trend_start = end - pd.DateOffset(months=TREND_LOOKBACK_MONTHS)
+trend_timeframe = f"{trend_start.strftime('%Y-%m-%d')} {end.strftime('%Y-%m-%d')}"
 
-# --- Fetch FRED time series function
-def fetch_fred_series(series_id, start_date, end_date):
-    df = DataReader(series_id, "fred", start_date, end_date)
-    df.columns = [series_id]
-    return df
+def fetch_fred(series_id, start_date, end_date):
+    try:
+        df = DataReader(series_id, "fred", start_date, end_date)
+        df.columns = [series_id]
+        return df
+    except Exception as e:
+        print(f"Error fetching {series_id} from FRED: {e}")
+        return pd.DataFrame()
 
-# --- Fetch Google Trends
-def fetch_google_trends(keywords, timeframe="today 6-m", hl="en-US", tz=360, attempts=3):
-    pytrends = TrendReq(hl=hl, tz=tz)
+def safe_compute_m2_yoy(m2_df):
+    if m2_df.empty:
+        return pd.DataFrame()
+    # ensure daily freq then compute 12-month pct change
+    m2_daily = m2_df.asfreq('D').ffill()
+    # use 365 days approx for YoY on daily series
+    m2_daily["M2_YoY_pct"] = m2_daily.iloc[:, 0].pct_change(periods=365) * 100
+    return m2_daily[["M2_YoY_pct"]]
+
+def fetch_trends(keywords, timeframe, attempts=3, sleep_sec=5):
+    if not keywords:
+        return pd.DataFrame()
+    pytrends = TrendReq(hl="en-US", tz=360, requests_args={
+        "headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    })
     for attempt in range(attempts):
         try:
             pytrends.build_payload(keywords, timeframe=timeframe)
-            data = pytrends.interest_over_time()
-            if data.empty:
-                return pd.DataFrame()
-            # remove isPartial if exists
-            if "isPartial" in data.columns:
-                data = data.drop(columns=["isPartial"])
-            # average across keywords (row-wise mean)
-            data["trends_avg"] = data[keywords].mean(axis=1)
-            return data[["trends_avg"]]
+            df = pytrends.interest_over_time()
+            if df is None or df.empty:
+                print(f"Attempt {attempt+1}: empty trends result")
+                time.sleep(sleep_sec)
+                continue
+            if "isPartial" in df.columns:
+                df = df.drop(columns=["isPartial"])
+            # ensure datetime index and rename to daily date index
+            df.index = pd.to_datetime(df.index)
+            return df
         except Exception as e:
-            print(f"Attempt {attempt+1} failed for Google Trends: {e}")
-            time.sleep(3)
-    print("Google Trends fetch failed after retries.")
+            print(f"Attempt {attempt+1} failed for pytrends: {e}")
+            time.sleep(sleep_sec)
+    print("pytrends fetch failed after retries")
     return pd.DataFrame()
 
-# --- Main
+def to_monthly(df, how="mean"):
+    if df is None or df.empty:
+        return pd.DataFrame()
+    # convert to monthly end frequency
+    if isinstance(df.index, pd.DatetimeIndex):
+        if how == "mean":
+            return df.resample("M").mean()
+        else:
+            return df.resample("M").last()
+    return pd.DataFrame()
+
+def save_placeholder_png(path, text="No data"):
+    plt.figure(figsize=(10,6))
+    plt.text(0.5, 0.5, text, ha="center", va="center", fontsize=24, alpha=0.6)
+    plt.axis("off")
+    plt.tight_layout()
+    plt.savefig(path)
+    plt.close()
+    print(f"Saved placeholder: {path}")
+
 def main():
     # 1) Fetch FRED series
-    try:
-        m2 = fetch_fred_series(FRED_M2_SERIES, start, end)
-        hy = fetch_fred_series(FRED_HY_SPREAD, start, end)
-        vix = fetch_fred_series(FRED_VIX, start, end)
-    except Exception as e:
-        print("Error fetching from FRED:", e)
-        return 1
+    m2 = fetch_fred(M2_SERIES, start - pd.DateOffset(days=10), end)
+    hy = fetch_fred(HY_SERIES, start - pd.DateOffset(days=10), end)
+    vix = fetch_fred(VIX_SERIES, start - pd.DateOffset(days=10), end)
 
-    # 2) Compute M2 YoY growth rate (%) from level
-    m2_yoy = (m2.pct_change(periods=12) * 100).rename(columns={FRED_M2_SERIES: "M2_YoY_pct"})
-    # drop NaNs
-    m2_yoy = m2_yoy.dropna()
+    # 2) Compute M2 YoY
+    m2_yoy = safe_compute_m2_yoy(m2)
 
-    # 3) Fetch Google Trends
-    trends = fetch_google_trends(KEYWORDS, timeframe=f"{LOOKBACK_MONTHS}m")
-    # if empty, continue but warn
-    if trends.empty:
-        print("Warning: Google Trends data empty. Plot will omit trends_avg.")
+    # 3) Fetch trends (12m then trim to last 6m)
+    trends_df = fetch_trends(KEYWORDS, timeframe=trend_timeframe)
+    if trends_df.empty:
+        print("Warning: trends empty")
+    else:
+        # trim to last LOOKBACK_MONTHS
+        cutoff = end - pd.DateOffset(months=LOOKBACK_MONTHS)
+        trends_df = trends_df[trends_df.index >= cutoff]
 
-    # 4) Align/resample to monthly to match M2 (M2 is monthly)
-    # Convert all to monthly end (or monthly mean)
-    def to_monthly_mean(df):
-        if df is None or df.empty:
-            return pd.DataFrame()
-        return df.resample("M").mean()
+    # 4) Convert all to monthly
+    m2_mon = to_monthly(m2_yoy, how="mean")
+    hy_mon = to_monthly(hy, how="mean")
+    vix_mon = to_monthly(vix, how="mean")
+    trends_mon = to_monthly(trends_df, how="mean")
 
-    m2_month = to_monthly_mean(m2_yoy)
-    hy_month = to_monthly_mean(hy)
-    vix_month = to_monthly_mean(vix)
-    trends_month = to_monthly_mean(trends)
+    # 5) compute trends average separately (if available)
+    if not trends_mon.empty:
+        trends_mon["trends_avg"] = trends_mon[KEYWORDS].mean(axis=1) if all(k in trends_mon.columns for k in KEYWORDS) else trends_mon.mean(axis=1)
+        trends_avg = trends_mon[["trends_avg"]]
+    else:
+        trends_avg = pd.DataFrame()
 
-    # 5) Combine into single DataFrame
-    pieces = [m2_month, trends_month, hy_month, vix_month]
-    combined = pd.concat(pieces, axis=1)
-    combined = combined.dropna(how="all")  # keep rows where at least one exists
+    # 6) Merge financial series: M2 YoY (left), HY & VIX (right)
+    dfs = []
+    if not m2_mon.empty:
+        dfs.append(m2_mon)
+    if not trends_avg.empty:
+        dfs.append(trends_avg)  # NOTE: trends_avg will be plotted separately per request, but include for combined left axis only if desired
+    if not hy_mon.empty:
+        dfs.append(hy_mon.rename(columns={HY_SERIES: "HY_Spread_bps"}))
+    if not vix_mon.empty:
+        dfs.append(vix_mon.rename(columns={VIX_SERIES: "VIX"}))
 
-    # rename columns for clarity
-    rename_map = {
-        FRED_HY_SPREAD: "HY_Spread_bps",
-        FRED_VIX: "VIX"
-    }
-    combined = combined.rename(columns=rename_map)
+    if not dfs:
+        print("No data from any source. Creating placeholders.")
+        save_placeholder_png(FIN_PNG, text="No financial data")
+        save_placeholder_png(TRENDS_PNG, text="No trends data")
+        return 0
 
-    # 6) If any column missing, fill with NaN (already)
-    print("Combined columns:", combined.columns.tolist())
+    combined = pd.concat(dfs, axis=1)
+    combined = combined.sort_index().ffill().bfill()
+    combined.to_csv(MERGED_CSV)
+    print("Saved merged CSV:", MERGED_CSV)
 
-    # 7) Plot
-    plt.figure(figsize=(12, 6))
-    ax = plt.gca()
-
-    # left axis: M2 YoY and Trends average (if present)
+    # 7) Plot financial combined: left = M2 YoY (and optional trends_avg), right = HY & VIX
+    fig, axL = plt.subplots(figsize=(12,6))
+    left_plotted = False
     if "M2_YoY_pct" in combined.columns:
-        ax.plot(combined.index, combined["M2_YoY_pct"], label="M2 YoY (%)", color="tab:blue", linewidth=2)
+        axL.plot(combined.index, combined["M2_YoY_pct"], label="M2 YoY (%)", color="tab:blue", linewidth=2)
+        left_plotted = True
     if "trends_avg" in combined.columns:
-        ax.plot(combined.index, combined["trends_avg"], label="Google Trends Avg", color="tab:cyan", linestyle="--")
+        axL.plot(combined.index, combined["trends_avg"], label="Trends Avg (monthly)", color="tab:cyan", linestyle="--")
+        left_plotted = True
 
-    ax.set_xlabel("Date")
-    ax.set_ylabel("M2 YoY (%) / Trends Avg")
-    ax.tick_params(axis="y")
+    axL.set_xlabel("Date")
+    axL.set_ylabel("Left axis: M2 YoY (%) / Trends Avg")
+    axL.tick_params(axis="y")
 
-    # right axis: HY spread and VIX
-    ax2 = ax.twinx()
+    axR = axL.twinx()
+    right_plotted = False
     if "HY_Spread_bps" in combined.columns:
-        ax2.plot(combined.index, combined["HY_Spread_bps"], label="HY Spread (bps)", color="tab:red", linewidth=1.5)
+        axR.plot(combined.index, combined["HY_Spread_bps"], label="HY Spread (bps)", color="tab:red", linewidth=1.5)
+        right_plotted = True
     if "VIX" in combined.columns:
-        ax2.plot(combined.index, combined["VIX"], label="VIX", color="tab:orange", linestyle=":")
+        axR.plot(combined.index, combined["VIX"], label="VIX", color="tab:orange", linestyle=":")
+        right_plotted = True
 
-    ax2.set_ylabel("HY Spread (bps) / VIX")
-    ax2.tick_params(axis="y")
-
-    # legend: combine legends from both axes
-    lines, labels = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(lines + lines2, labels + labels2, loc="best")
-
-    plt.title("Google Trends & Macro / Market Indicators")
-    plt.grid(True)
+    if left_plotted or right_plotted:
+        linesL, labelsL = axL.get_legend_handles_labels()
+        linesR, labelsR = axR.get_legend_handles_labels()
+        axL.legend(linesL + linesR, labelsL + labelsR, loc="best")
+    axL.grid(True)
+    plt.title("M2 YoY, Trends Avg (opt), HY Spread, VIX")
     plt.tight_layout()
+    plt.savefig(FIN_PNG)
+    plt.close()
+    print("Saved financial plot:", FIN_PNG)
 
-    out_png = "trend.png"
-    plt.savefig(out_png)
-    print(f"Saved plot to {out_png}")
-
-    # 8) Create a zip artifact (so Actions can upload)
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
-    zip_name = f"trend-{date_str}.zip"
-    with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.write(out_png)
-    print(f"Saved artifact zip: {zip_name}")
+    # 8) Save trends CSV and plot separately (each of 6 in one plot)
+    if trends_df is None or trends_df.empty:
+        save_placeholder_png(TRENDS_PNG, text="No trends data")
+    else:
+        # save raw daily trends for inspection
+        trends_df.to_csv(TRENDS_CSV)
+        print("Saved trends CSV:", TRENDS_CSV)
+        plt.figure(figsize=(12,6))
+        for kw in KEYWORDS:
+            if kw in trends_df.columns:
+                plt.plot(trends_df.index, trends_df[kw], label=kw)
+            else:
+                print(f"Keyword missing in trends_df: {kw}")
+        plt.legend()
+        plt.title("Google Trends (daily) - specified keywords")
+        plt.xlabel("Date")
+        plt.ylabel("Interest (0-100)")
+        plt.xticks(rotation=30)
+        plt.tight_layout()
+        plt.savefig(TRENDS_PNG)
+        plt.close()
+        print("Saved trends plot:", TRENDS_PNG)
 
     return 0
 
