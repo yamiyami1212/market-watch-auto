@@ -1,130 +1,135 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Fetch M2 (YoY %), HY spread (bps), and VIX from FRED and plot:
- - Left axis: M2 YoY (%) and HY spread (bps)
- - Right axis: VIX
-Saves macro_trends.png and macro_data.csv
-"""
-import json
-import sys
+# market_watch_macro.py
+# Fetch M2 (YoY%), HY spread, VIX from FRED and output CSV + PNG reliably.
+
+import os
 import time
-import datetime
+from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 from pandas_datareader import data as pdr
 
-# Load config
-def load_config():
-    try:
-        with open("data_sources.json", "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-    except Exception:
-        # fallback defaults
-        cfg = {
-            "fred_series": {"m2": "M2SL", "hy_spread": "BAMLH0A0HYM2", "vix": "VIXCLS"},
-            "months_back": 18
-        }
-    return cfg
+# CONFIG
+FRED_M2 = "M2SL"
+FRED_HY = "BAMLH0A0HYM2"
+FRED_VIX = "VIXCLS"
 
-cfg = load_config()
-SERIES_M2 = cfg["fred_series"].get("m2", "M2SL")
-SERIES_HY = cfg["fred_series"].get("hy_spread", "BAMLH0A0HYM2")
-SERIES_VIX = cfg["fred_series"].get("vix", "VIXCLS")
-months_back = int(cfg.get("months_back", 18))
-
-END = datetime.date.today()
-START = (pd.Timestamp(END) - pd.DateOffset(months=months_back)).date()
-
-OUT_PLOT = "macro_trends.png"
+# Output files (fixed names used by workflow)
 OUT_CSV = "macro_data.csv"
+OUT_PNG = "macro_graph.png"
+RAW_DIR = "debug_raw"
+os.makedirs(RAW_DIR, exist_ok=True)
 
-def fetch_series(symbol, source="fred", start=START, end=END, tries=3, pause=3):
-    last_exc = None
-    for attempt in range(1, tries+1):
+# Date range: go back enough to compute YoY (use 24 months as safe)
+END = pd.Timestamp.today().normalize()
+START = END - pd.DateOffset(months=24)
+
+def fetch_fred(series_id, start=START, end=END, tries=3, pause=3):
+    last_err = None
+    for i in range(tries):
         try:
-            print(f"[FRED] Fetching {symbol} try {attempt} ...", flush=True)
-            s = pdr.DataReader(symbol, source, start, end)
-            if isinstance(s, pd.Series):
-                s = s.to_frame(name=symbol)
-            else:
-                s.columns = [symbol]
-            return s
+            print(f"[FRED] fetching {series_id} (attempt {i+1})...", flush=True)
+            df = pdr.DataReader(series_id, "fred", start, end)
+            if df is None or df.empty:
+                print(f"[FRED] Warning: returned empty for {series_id}", flush=True)
+                return pd.DataFrame()
+            df.columns = [series_id]
+            # save raw
+            raw_path = os.path.join(RAW_DIR, f"{series_id}_raw.csv")
+            df.to_csv(raw_path)
+            print(f"[FRED] saved raw to {raw_path}", flush=True)
+            return df
         except Exception as e:
-            print(f"[FRED] Warning: {symbol} fetch failed (attempt {attempt}): {e}", flush=True)
-            last_exc = e
+            last_err = e
+            print(f"[FRED] attempt {i+1} failed for {series_id}: {e}", flush=True)
             time.sleep(pause)
-    raise RuntimeError(f"Failed to fetch {symbol} after {tries} attempts: {last_exc}")
+    raise RuntimeError(f"Failed to fetch {series_id} after {tries} attempts. Last error: {last_err}")
+
+def compute_m2_yoy(m2_df, series_id=FRED_M2):
+    if m2_df is None or m2_df.empty:
+        return pd.DataFrame()
+    # resample to month-end using last observation
+    m2_mon = m2_df.resample("M").last()
+    m2_mon = m2_mon.sort_index()
+    # compute 12-month pct change
+    m2_mon["M2_YoY_pct"] = m2_mon[series_id].pct_change(periods=12) * 100.0
+    return m2_mon[["M2_YoY_pct"]]
+
+def hy_to_bps(hy_df, series_id=FRED_HY):
+    if hy_df is None or hy_df.empty:
+        return pd.DataFrame()
+    hy_mon = hy_df.resample("M").last()
+    hy_mon = hy_mon.sort_index()
+    # check scale: if median < 20 treat as percent (e.g., 3.1 -> 310 bps)
+    med = hy_mon[series_id].median()
+    if pd.notna(med) and abs(med) < 20:
+        hy_mon["HY_spread_bps"] = hy_mon[series_id] * 100.0
+        print(f"[HY] median {med:.3f} <20 -> converted to bps by *100", flush=True)
+    else:
+        hy_mon["HY_spread_bps"] = hy_mon[series_id]
+        print(f"[HY] median {med:.3f} -> assumed already in bps or large units", flush=True)
+    return hy_mon[["HY_spread_bps"]]
+
+def vix_monthly(vix_df, series_id=FRED_VIX):
+    if vix_df is None or vix_df.empty:
+        return pd.DataFrame()
+    vix_mon = vix_df.resample("M").last()
+    vix_mon = vix_mon.sort_index()
+    vix_mon.columns = ["VIX"]
+    return vix_mon[["VIX"]]
 
 def main():
-    print(f"Fetching from FRED: {START} -> {END}", flush=True)
+    print("Start macro fetch", flush=True)
+    m2_raw = fetch_fred(FRED_M2)
+    hy_raw = fetch_fred(FRED_HY)
+    vix_raw = fetch_fred(FRED_VIX)
 
-    m2 = fetch_series(SERIES_M2)
-    hy = fetch_series(SERIES_HY)
-    vix = fetch_series(SERIES_VIX)
+    m2_yoy = compute_m2_yoy(m2_raw, FRED_M2)
+    hy_bps = hy_to_bps(hy_raw, FRED_HY)
+    vix_mon = vix_monthly(vix_raw, FRED_VIX)
 
-    m2.columns = ["M2"]
-    hy.columns = ["HY_raw"]
-    vix.columns = ["VIX"]
+    # Combine on month-end index
+    dfs = [d for d in [m2_yoy, hy_bps, vix_mon] if not d.empty]
+    if not dfs:
+        print("No data available from FRED. Exiting.", flush=True)
+        # create placeholder CSV
+        pd.DataFrame().to_csv(OUT_CSV)
+        return 1
 
-    # monthly alignment (end of month)
-    m2_m = m2.resample("M").last()
-    hy_m = hy.resample("M").last()
-    vix_m = vix.resample("M").last()
+    combined = pd.concat(dfs, axis=1)
+    combined = combined.sort_index().ffill().bfill()
+    # Force DATE column as ISO string of index (month end)
+    out = combined.copy()
+    out.insert(0, "DATE", out.index.strftime("%Y-%m-%d"))
+    out.to_csv(OUT_CSV, index=False, float_format="%.6f")
+    print(f"Saved {OUT_CSV}", flush=True)
 
-    # M2 YoY %
-    m2_yoy = m2_m.pct_change(12) * 100
-    m2_yoy.columns = ["M2_YoY_pct"]
+    # Plot: left = M2 YoY and HY_spread_bps; right = VIX
+    fig, axL = plt.subplots(figsize=(12,6))
+    if "M2_YoY_pct" in combined.columns:
+        axL.plot(combined.index, combined["M2_YoY_pct"], label="M2 YoY (%)", color="tab:blue", linewidth=2)
+    if "HY_spread_bps" in combined.columns:
+        axL.plot(combined.index, combined["HY_spread_bps"], label="HY Spread (bps)", color="tab:red", linewidth=1.5)
+    axL.set_xlabel("Date")
+    axL.set_ylabel("Left axis: M2 YoY (%) / HY Spread (bps)")
+    axL.grid(True, linestyle="--", alpha=0.4)
 
-    # HY spread: convert to bps if needed
-    med = hy_m["HY_raw"].median()
-    if pd.notna(med) and abs(med) < 10:
-        # likely percent -> convert to bps
-        hy_m["HY_spread_bps"] = hy_m["HY_raw"] * 100.0
-    else:
-        hy_m["HY_spread_bps"] = hy_m["HY_raw"]
+    axR = axL.twinx()
+    if "VIX" in combined.columns:
+        axR.plot(combined.index, combined["VIX"], label="VIX", color="tab:orange", linestyle="--")
+        axR.set_ylabel("VIX")
 
-    hy_final = hy_m[["HY_spread_bps"]]
+    # legend
+    linesL, labelsL = axL.get_legend_handles_labels()
+    linesR, labelsR = axR.get_legend_handles_labels()
+    axL.legend(linesL + linesR, labelsL + labelsR, loc="upper left")
 
-    # Combine
-    df = pd.concat([m2_yoy, hy_final, vix_m], axis=1)
-    df = df.sort_index()
-    df = df.dropna(how="all")
-
-    if df.empty:
-        print("No data available after fetch. Exiting.", flush=True)
-        sys.exit(0)
-
-    df.to_csv(OUT_CSV, float_format="%.6f")
-    print(f"Wrote {OUT_CSV}", flush=True)
-
-    # Plot
-    fig, ax = plt.subplots(figsize=(12, 6))
-    if "M2_YoY_pct" in df.columns:
-        ax.plot(df.index, df["M2_YoY_pct"], label="M2 YoY (%)", color="tab:blue", linewidth=2)
-    if "HY_spread_bps" in df.columns:
-        ax.plot(df.index, df["HY_spread_bps"], label="HY Spread (bps)", color="tab:red", linewidth=1.5)
-
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Left axis: M2 YoY (%) / HY Spread (bps)")
-    ax.grid(True, linestyle="--", alpha=0.4)
-
-    ax2 = ax.twinx()
-    if "VIX" in df.columns:
-        ax2.plot(df.index, df["VIX"], label="VIX", color="tab:orange", linewidth=1.5, linestyle="--")
-    ax2.set_ylabel("VIX")
-
-    # combined legend
-    lines, labels = ax.get_legend_handles_labels()
-    l2, lab2 = ax2.get_legend_handles_labels()
-    ax.legend(lines + l2, labels + lab2, loc="upper left")
-
-    plt.title("M2 YoY, HY Spread (bps) and VIX (monthly)")
-    fig.autofmt_xdate()
+    plt.title("M2 YoY (%) & HY Spread (bps) / VIX")
     plt.tight_layout()
-    plt.savefig(OUT_PLOT, dpi=150)
-    print(f"Wrote {OUT_PLOT}", flush=True)
-    plt.close(fig)
+    plt.savefig(OUT_PNG, dpi=150)
+    plt.close()
+    print(f"Saved {OUT_PNG}", flush=True)
+    return 0
 
 if __name__ == "__main__":
-    main()
+    exit(main())
