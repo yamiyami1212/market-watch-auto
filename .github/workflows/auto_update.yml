@@ -1,56 +1,25 @@
-import time
-import pandas as pd
-import matplotlib.pyplot as plt
-from pytrends.request import TrendReq
+name: auto_update
 
-# ------------------------------
-# 設定
-# ------------------------------
-KEYWORDS = ["Bitcoin", "Ethereum", "NFT"]
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 1,4"   # every Monday and Thursday 09:00 JST (00:00 UTC)
 
-# GitHub Actions 対策: User-Agent を指定してブラウザっぽくする
-pytrends = TrendReq(
-    hl="en-US",
-    tz=360,
-    requests_args={
-        "headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/91.0.4472.124 Safari/537.36"
-            )
-        }
-    },
-)
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-# ------------------------------
-# データ取得（リトライ付き）
-# ------------------------------
-for attempt in range(3):
-    try:
-        pytrends.build_payload(KEYWORDS, timeframe="today 6-m")
-        data = pytrends.interest_over_time()
-        if not data.empty:
-            break
-    except Exception as e:
-        print(f"Attempt {attempt+1} failed: {e}")
-        time.sleep(5)
-else:
-    raise RuntimeError("Google Trends request failed after 3 attempts")
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
-# ------------------------------
-# グラフ作成
-# ------------------------------
-plt.figure(figsize=(10, 5))
-for kw in KEYWORDS:
-    plt.plot(data.index, data[kw], label=kw)
+      - name: Install dependencies
+        run: |
+          pip install pandas matplotlib pytrends
 
-plt.title("Google Trends (Last 6 months)")
-plt.xlabel("Date")
-plt.ylabel("Interest")
-plt.legend()
-plt.tight_layout()
-
-# 出力ファイル
-plt.savefig("trends.png")
-print("✅ trends.png saved")
+      - name: Run script
+        run: python market_watch_auto.py
