@@ -3,12 +3,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pytrends.request import TrendReq
 
-# -----------------------------
+# ---------------------------------
 # 設定
-# -----------------------------
+# ---------------------------------
 KEYWORDS = ["Bitcoin", "Ethereum", "NFT"]
 
-# GitHub Actions 対策: User-Agent を指定
+# GitHub Actions 対策: User-Agent を指定してリクエスト
 pytrends = TrendReq(
     hl="en-US",
     tz=360,
@@ -23,25 +23,29 @@ pytrends = TrendReq(
     },
 )
 
-# -----------------------------
+# ---------------------------------
 # データ取得
-# -----------------------------
-# まず1年分を取得
-pytrends.build_payload(KEYWORDS, timeframe="today 12-m")
+# ---------------------------------
+pytrends.build_payload(KEYWORDS, timeframe="today 6-m")
 df = pytrends.interest_over_time()
 
-# 直近半年だけにフィルタリング
-six_months_ago = pd.Timestamp.today() - pd.DateOffset(months=6)
-df = df[df.index >= six_months_ago]
+# NaN があれば削除
+df = df.dropna()
 
-# -----------------------------
-# 保存
-# -----------------------------
-csv_filename = "trend_data.csv"
-df.to_csv(csv_filename)
-
-# -----------------------------
-# グラフ作成
-# -----------------------------
+# ---------------------------------
+# グラフ描画
+# ---------------------------------
 plt.figure(figsize=(10, 6))
+
 for kw in KEYWORDS:
+    plt.plot(df.index, df[kw], label=kw)
+
+plt.legend()
+plt.title("Google Trends: Last 6 Months")
+plt.xlabel("Date")
+plt.ylabel("Search Interest")
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("trend.png")
+
+print("✅ グラフを trend.png として保存しました。")
