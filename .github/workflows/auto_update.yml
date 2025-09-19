@@ -3,7 +3,7 @@ name: auto_update
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * 1,4"   # every Monday and Thursday 09:00 JST (00:00 UTC)
+    - cron: "0 0 * * 1,4"  # every Monday and Thursday
 
 jobs:
   build:
@@ -23,3 +23,14 @@ jobs:
 
       - name: Run script
         run: python market_watch_auto.py
+
+      - name: Rename result with date
+        run: |
+          DATE=$(date +'%Y-%m-%d')
+          mv trend.png trend_${DATE}.png
+
+      - name: Upload result graph
+        uses: actions/upload-artifact@v3
+        with:
+          name: trend-graph
+          path: trend_*.png
