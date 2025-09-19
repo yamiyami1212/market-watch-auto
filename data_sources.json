@@ -1,13 +1,15 @@
 {
-  "m2": "M2SL",
-  "vix": "VIXCLS",
-  "hy_spread": "BAMLH0A0HYM2",
-  "google_trends_keywords": [
+  "google_keywords": [
     "sell my house fast",
     "give car back",
-    "Borrow against stock",
-    "Borrow against life insurance",
+    "borrow against life insurance",
     "sell my rolex watch",
     "bankruptcy lawyer"
-  ]
+  ],
+  "fred_series": {
+    "m2": "M2SL",
+    "hy_spread": "BAMLH0A0HYM2",
+    "vix": "VIXCLS"
+  },
+  "months_back": 18
 }
