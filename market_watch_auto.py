@@ -1,52 +1,47 @@
-import os
+import time
 import pandas as pd
 import matplotlib.pyplot as plt
 from pytrends.request import TrendReq
-from datetime import datetime
 
-# keywords
-KEYWORDS = [
-    "Borrow against stock",
-    "Borrow against life insurance",
-    "Sell my rolex watch",
-    "Bankruptcy lawyer",
-    "Sell my house fast",
-    "Give car back"
-]
+# -----------------------------
+# 設定
+# -----------------------------
+KEYWORDS = ["Bitcoin", "Ethereum", "NFT"]
 
-# file names
-CSV_FILE = "market_watch_data.csv"
-IMG_FILE = "market_watch_chart.png"
+# GitHub Actions 対策: User-Agent を指定
+pytrends = TrendReq(
+    hl="en-US",
+    tz=360,
+    requests_args={
+        "headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/91.0.4472.124 Safari/537.36"
+            )
+        }
+    },
+)
 
-# set up pytrends
-pytrends = TrendReq(hl="en-US", tz=360)
+# -----------------------------
+# データ取得
+# -----------------------------
+# まず1年分を取得
+pytrends.build_payload(KEYWORDS, timeframe="today 12-m")
+df = pytrends.interest_over_time()
 
-# get last 6 months data
-pytrends.build_payload(KEYWORDS, timeframe="today 6-m")
-data = pytrends.interest_over_time().drop(columns=["isPartial"])
+# 直近半年だけにフィルタリング
+six_months_ago = pd.Timestamp.today() - pd.DateOffset(months=6)
+df = df[df.index >= six_months_ago]
 
-# add timestamp
-data["timestamp"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+# -----------------------------
+# 保存
+# -----------------------------
+csv_filename = "trend_data.csv"
+df.to_csv(csv_filename)
 
-# save to csv
-if os.path.exists(CSV_FILE):
-    old = pd.read_csv(CSV_FILE)
-    combined = pd.concat([old, data.reset_index()])
-    combined.drop_duplicates(subset=["date"], keep="last", inplace=True)
-else:
-    combined = data.reset_index()
-
-combined.to_csv(CSV_FILE, index=False)
-
-# plot chart
-plt.figure(figsize=(12, 6))
-for col in KEYWORDS:
-    plt.plot(combined["date"], combined[col], label=col)
-
-plt.title("Google Trends - Last 6 Months")
-plt.xlabel("Date")
-plt.ylabel("Interest")
-plt.legend()
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.savefig(IMG_FILE)
+# -----------------------------
+# グラフ作成
+# -----------------------------
+plt.figure(figsize=(10, 6))
+for kw in
