@@ -1,91 +1,59 @@
 import time
-import datetime
-import os
-import sys
-import traceback
-
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 from pytrends.request import TrendReq
 
-KEYWORDS = ["Bitcoin", "Ethereum", "NFT"]
+# CONFIG: set keywords and timeframe
+KEYWORDS = ["Bitcoin", "Apple", "Google"]
+TIMEFRAME = "today 12-m"  # try "today 5-y" or "today 12-m"
+GEO = ""  # "" for worldwide, or "US", "JP", etc.
 
-def fetch_trends(keywords, retries=3, sleep_sec=5):
-    df = None
-    for attempt in range(retries):
-        try:
-            pytrends = TrendReq(hl='en-US', tz=360, retries=2, backoff_factor=0.1)
-            pytrends.build_payload(keywords, timeframe="today 6-m")
-            df = pytrends.interest_over_time()
-            if df is not None and not df.empty:
-                return df
-            else:
-                print(f"Attempt {attempt+1}: empty result, retrying...")
-        except Exception as e:
-            print(f"Attempt {attempt+1} failed: {e}")
-            # do not raise; wait and retry
-            time.sleep(sleep_sec)
-    return None
+pytrends = TrendReq(hl="en-US", tz=0)
 
-def save_placeholder_image(path):
-    plt.figure(figsize=(10, 6))
-    plt.text(0.5, 0.5, "No data", horizontalalignment='center',
-             verticalalignment='center', fontsize=24, alpha=0.7)
-    plt.axis('off')
+# Try to fetch data with retries
+df = None
+for attempt in range(3):
+    try:
+        pytrends.build_payload(KEYWORDS, timeframe=TIMEFRAME, geo=GEO)
+        df = pytrends.interest_over_time()
+        print("✅ Google Trends data fetched")
+        break
+    except Exception as e:
+        print(f"⚠️ Attempt {attempt+1} failed: {e}")
+        time.sleep(5)
+
+# Save debug CSV and create PNG (plot or placeholder)
+if df is None or df.empty:
+    print("⚠️ No data retrieved from Google Trends.")
+    # Create CSV with note for debugging
+    debug_df = pd.DataFrame({"note": ["No data from Google Trends for given keywords/timeframe/geo"]})
+    debug_df.to_csv("data.csv", index=False)
+    # Create placeholder image
+    plt.figure(figsize=(6, 4))
+    plt.text(0.5, 0.5, "No data", fontsize=24, ha="center", va="center")
+    plt.axis("off")
     plt.tight_layout()
-    plt.savefig(path)
-    plt.close()
-    print(f"Saved placeholder image: {path}")
-
-def plot_and_save(df, keywords, path):
+    plt.savefig("trend.png")
+    print("✅ Placeholder saved as trend.png and data.csv created")
+else:
+    # Clean and save CSV for inspection
+    if "isPartial" in df.columns:
+        df = df.drop(columns=["isPartial"], errors="ignore")
+    df = df.dropna(how="all")
+    df.to_csv("data.csv")
+    print(f"✅ Data saved to data.csv, shape={df.shape}")
+    # Plot
     plt.figure(figsize=(10, 6))
-    plotted = False
-    for kw in keywords:
+    for kw in KEYWORDS:
         if kw in df.columns:
             plt.plot(df.index, df[kw], label=kw)
-            plotted = True
-    if not plotted:
-        # fallback if columns not present
-        save_placeholder_image(path)
-        return
+        else:
+            print(f"⚠️ Column for '{kw}' not in dataframe")
     plt.legend()
-    plt.title("Google Trends: Last 6 Months")
+    plt.title("Google Trends")
     plt.xlabel("Date")
-    plt.ylabel("Search Interest")
+    plt.ylabel("Interest")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(path)
-    plt.close()
-    print(f"Saved graph image: {path}")
-
-def main():
-    out_file = "trend.png"
-    # ensure old file removed
-    if os.path.exists(out_file):
-        try:
-            os.remove(out_file)
-        except Exception:
-            pass
-
-    df = fetch_trends(KEYWORDS, retries=3, sleep_sec=5)
-
-    if df is None or df.empty:
-        print("Could not fetch Google Trends data. Creating placeholder image.")
-        save_placeholder_image(out_file)
-    else:
-        try:
-            # remove 'isPartial' or similar if present
-            if 'isPartial' in df.columns:
-                df = df.drop(columns=['isPartial'])
-            df = df.dropna(how='all')
-            plot_and_save(df, KEYWORDS, out_file)
-        except Exception as e:
-            print("Error while plotting:", e)
-            traceback.print_exc()
-            save_placeholder_image(out_file)
-
-    # optional: print absolute path
-    print("Output file:", os.path.abspath(out_file))
-
-if __name__ == "__main__":
-    main()
+    plt.savefig("trend.png")
+    print("✅ Plot saved as trend.png")
