@@ -3,7 +3,7 @@ name: auto_update
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * 1"
+    - cron: '0 0 * * 1'  # every Monday (UTC)
 
 jobs:
   build:
@@ -20,7 +20,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run macro script
         run: |
@@ -33,5 +33,4 @@ jobs:
           path: |
             macro_data.csv
             macro_graph.png
-            debug_raw/**
 ```0
