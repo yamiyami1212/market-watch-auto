@@ -8,12 +8,10 @@ from pytrends.request import TrendReq
 # -----------------------------
 KEYWORDS = ["Bitcoin", "Ethereum", "NFT"]
 
-# Google Trends に接続（User-Agent と retries を強化）
+# Google Trends に接続
 pytrends = TrendReq(
     hl="en-US",
     tz=360,
-    retries=5,
-    backoff_factor=0.5,
     requests_args={
         "headers": {
             "User-Agent": (
@@ -26,38 +24,36 @@ pytrends = TrendReq(
 )
 
 # -----------------------------
-# データ取得（リトライつき）
+# データ取得（失敗しても続行）
 # -----------------------------
-success = False
+df = None
 for attempt in range(3):
     try:
         pytrends.build_payload(KEYWORDS, timeframe="today 6-m")
         df = pytrends.interest_over_time()
-        success = True
+        print("✅ Google Trends data fetched.")
         break
     except Exception as e:
         print(f"⚠️ Attempt {attempt+1} failed: {e}")
         time.sleep(5)
 
-if not success:
-    raise RuntimeError("❌ Google Trends API request failed after 3 attempts.")
+if df is None or df.empty:
+    print("⚠️ Could not fetch Google Trends data. Skipping graph generation.")
+else:
+    df = df.dropna()
+    # -----------------------------
+    # グラフ描画
+    # -----------------------------
+    plt.figure(figsize=(10, 6))
+    for kw in KEYWORDS:
+        plt.plot(df.index, df[kw], label=kw)
 
-# NaN があれば削除
-df = df.dropna()
+    plt.legend()
+    plt.title("Google Trends: Last 6 Months")
+    plt.xlabel("Date")
+    plt.ylabel("Search Interest")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("trend.png")
 
-# -----------------------------
-# グラフ描画
-# -----------------------------
-plt.figure(figsize=(10, 6))
-for kw in KEYWORDS:
-    plt.plot(df.index, df[kw], label=kw)
-
-plt.legend()
-plt.title("Google Trends: Last 6 Months")
-plt.xlabel("Date")
-plt.ylabel("Search Interest")
-plt.grid(True)
-plt.tight_layout()
-plt.savefig("trend.png")
-
-print("✅ グラフを trend.png として保存しました。")
+    print("✅ Graph saved as trend.png")
