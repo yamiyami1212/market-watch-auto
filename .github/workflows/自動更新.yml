@@ -1,24 +1,19 @@
-name: 自動更新
+name: auto_update
 
 on:
-  push:            # ファイルを更新した時
+  push:
     branches:
       - main
-  schedule:        # 定期実行（UTCベース）
-    - cron: '0 0 * * 1'   # 月曜 UTC0時 → 日本時間09:00
-    - cron: '0 0 * * 4'   # 木曜 UTC0時 → 日本時間09:00
+  schedule:
+    - cron: '0 0 * * 1'
+    - cron: '0 0 * * 4'
 
 jobs:
-  run-script:
+  run:
     runs-on: ubuntu-latest
     steps:
-      - name: リポジトリをチェックアウト
-        uses: actions/checkout@v3
-
-      - name: Python をセットアップ
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
-      - name: スクリプトを実行
-        run: python script.py
+      - run: python マーケットウォッチ自動.py
